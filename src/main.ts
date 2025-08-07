@@ -27,7 +27,9 @@ async function bootstrap() {
   generateSwaggerDocument(app);
 
   // 监听端口
-  await app.listen(8888);
+  const port = process.env.PORT || 4000;
+  await app.listen(port);
+  logger.log(`🚀 应用已启动，监听端口: ${port}`);
 }
 
 bootstrap();
