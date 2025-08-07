@@ -7,11 +7,26 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { SensitiveController } from './sensitive/sensitive.controller';
 import { SensitiveModule } from './sensitive/sensitive.module';
 import { SensitiveInterceptor } from './common/interceptors/sensitive.interceptor';
+import { IpModule } from './ip/ip.module';
+import { Ip } from './ip/entities/admin/ip.entity';
 // import env from 'config';
-import { ormConfig } from './config/db.config';
+import { ormConfigSchool, ormConfigAdmin } from './config/db.config';
 
 @Module({
-  imports: [StudentsModule, TypeOrmModule.forRoot(ormConfig), SensitiveModule],
+  imports: [
+    StudentsModule, 
+    // 配置 school 数据库连接（默认连接）
+    TypeOrmModule.forRoot(ormConfigSchool), 
+    // 配置 admin 数据库连接（命名连接）
+    TypeOrmModule.forRoot({
+      ...ormConfigAdmin,
+      name: 'admin', // 命名连接
+      entities: [Ip],
+      autoLoadEntities: true,
+    }),
+    SensitiveModule,
+    IpModule, // 导入IP模块
+  ],
   controllers: [AppController, SensitiveController],
   providers: [
     AppService,
