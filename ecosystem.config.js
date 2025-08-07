@@ -5,7 +5,7 @@ module.exports = {
       name: 'admin-nestjs',
       
       // 启动脚本路径
-      script: 'dist/main.js',
+      script: 'dist/src/main.js',
       
       // 工作目录
       cwd: './',
