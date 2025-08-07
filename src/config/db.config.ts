@@ -31,4 +31,4 @@ const ormConfigForCli: DataSourceOptions = {
 const dataSource = new DataSource(ormConfigForCli);
 
 // 此处的dataSource需要 export default才可以使用
-export default dataSource; 
+export default dataSource;

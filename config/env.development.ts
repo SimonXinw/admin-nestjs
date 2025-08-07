@@ -13,7 +13,7 @@ export default {
     username: 'root',
     password: '123456',
     database: 'school',
-    synchronize: false, // 数据库自动同步 entity 文件修改
+    synchronize: true, // 数据库自动同步 entity 文件修改
     autoLoadEntities: true, // 自动链接被 forFeature 注册的实体
     migrations: ['src/migrations/*.ts'], // 主要配置一下这个就可以了
     cli: {
