@@ -96,3 +96,161 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+
+# Admin NestJS 项目
+
+## 项目概述
+
+这是一个基于 NestJS 11 的后端管理系统，从 blog-nestjs（NestJS 9）项目迁移所有业务逻辑而来。
+
+## 迁移内容
+
+从 blog-nestjs 项目迁移了以下模块和功能：
+
+### 🔧 配置模块
+- 数据库配置 (`src/config/db.config.ts`)
+- 环境配置 (`config/env.development.ts`, `config/env.production.ts`)
+- Swagger 文档配置 (`src/swaggerDoc.ts`)
+
+### 🛡️ 通用模块 (`src/common/`)
+- **装饰器**: 用户装饰器、敏感操作装饰器
+- **守卫**: 用户权限守卫
+- **拦截器**: 敏感操作拦截器
+- **管道**: 名称转换管道
+
+### 🔒 敏感操作模块 (`src/sensitive/`)
+- 敏感操作记录实体
+- 敏感操作服务
+- 敏感操作控制器
+- 敏感操作枚举常量
+
+### 👥 学生管理模块 (`src/students/`)
+- 学生实体 (`Student`)
+- 班级实体 (`Classes`)  
+- 学生服务 (CRUD 操作)
+- 学生控制器 (API 接口)
+- DTO 数据传输对象
+
+## 版本升级变化
+
+从 NestJS 9 升级到 NestJS 11，主要变化：
+
+- 依赖版本更新：
+  - `@nestjs/common`: ^9.0.0 → ^11.0.1
+  - `@nestjs/core`: ^9.0.0 → ^11.0.1
+  - `@nestjs/swagger`: ^6.2.1 → ^8.0.0
+  - `@nestjs/typeorm`: ^9.0.1 → ^10.0.2
+  - `typeorm`: ^0.3.12 → ^0.3.20
+- 代码语法保持兼容，无需修改业务逻辑代码
+
+## 安装和运行
+
+### 1. 安装依赖
+
+\`\`\`bash
+pnpm install
+\`\`\`
+
+### 2. 数据库配置
+
+确保 MySQL 数据库运行，并创建名为 `school` 的数据库：
+
+\`\`\`sql
+CREATE DATABASE school;
+\`\`\`
+
+修改 `src/config/db.config.ts` 中的数据库连接配置。
+
+### 3. 运行项目
+
+开发模式：
+\`\`\`bash
+pnpm start:dev
+\`\`\`
+
+生产模式：
+\`\`\`bash
+pnpm build
+pnpm start:prod
+\`\`\`
+
+### 4. 访问接口
+
+- 应用地址: http://localhost:8888
+- Swagger 文档: http://localhost:8888/api
+
+## API 接口
+
+### 学生管理接口
+
+- `GET /students/who-are-you-get?name=xxx` - 获取学生信息
+- `POST /students/who-are-you-post` - 创建学生（需要用户认证）
+- `GET /students/get-name-by-id?id=1` - 根据ID获取学生姓名
+- `POST /students/set-student-name` - 设置学生姓名（敏感操作）
+- `GET /students/delete-student-name?name=xxx` - 删除学生
+- `GET /students/update-student-name?id=1` - 更新学生姓名
+- `POST /students/who-is-request` - 获取当前请求用户
+- `GET /students/get-class?id=1` - 获取班级信息
+- `POST /students/set-class` - 创建班级
+
+### 敏感操作接口
+
+- `GET /sensitive/get-by-type?type=Set` - 根据类型查询敏感操作记录
+
+## 数据库迁移
+
+支持 TypeORM 迁移命令：
+
+\`\`\`bash
+# 生成迁移文件
+pnpm migration:generate
+
+# 运行迁移
+pnpm migration:run
+
+# 回滚迁移
+pnpm migration:revert
+\`\`\`
+
+## 开发工具
+
+- **格式化代码**: `pnpm format`
+- **代码检查**: `pnpm lint`
+- **运行测试**: `pnpm test`
+- **覆盖率测试**: `pnpm test:cov`
+
+## 项目结构
+
+\`\`\`
+src/
+├── common/               # 通用模块
+│   ├── decorators.ts    # 自定义装饰器
+│   ├── guards/          # 守卫
+│   ├── interceptors/    # 拦截器
+│   └── pipes/           # 管道
+├── config/              # 配置文件
+│   └── db.config.ts     # 数据库配置
+├── sensitive/           # 敏感操作模块
+│   ├── entities/        # 实体
+│   ├── constants.ts     # 常量定义
+│   ├── sensitive.controller.ts
+│   ├── sensitive.service.ts
+│   └── sensitive.module.ts
+├── students/            # 学生管理模块
+│   ├── entities/        # 实体
+│   ├── dtos/           # 数据传输对象
+│   ├── students.controller.ts
+│   ├── students.service.ts
+│   └── students.module.ts
+├── app.module.ts        # 主应用模块
+├── main.ts             # 应用入口
+└── swaggerDoc.ts       # Swagger配置
+\`\`\`
+
+## 技术栈
+
+- **框架**: NestJS 11
+- **数据库**: MySQL + TypeORM
+- **文档**: Swagger
+- **验证**: class-validator
+- **包管理**: pnpm
