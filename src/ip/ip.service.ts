@@ -15,10 +15,10 @@ export class IpService implements OnModuleDestroy {
   }
 
   private readonly logger = new Logger(IpService.name);
-  
+
   // 定时器ID，用于清理定时任务
   private batchSaveTimer: NodeJS.Timeout | null = null;
-  
+
   // 内存队列，用于缓存待保存的IP记录
   private ipQueue: Array<{
     clientIp: string;
@@ -28,19 +28,19 @@ export class IpService implements OnModuleDestroy {
     ipType: 'IPv4' | 'IPv6';
     timestamp: Date;
   }> = [];
-  
+
   // 队列大小限制
   private readonly MAX_QUEUE_SIZE = 1000;
   // 批量保存间隔（毫秒）
   private readonly BATCH_SAVE_INTERVAL = 2000; // 2秒
-  
+
   // 统计信息
   private stats = {
-    totalProcessed: 0,      // 总处理数量
-    totalSaved: 0,          // 成功保存数量
-    totalFailed: 0,         // 失败数量
-    lastBatchTime: new Date(),  // 上次批量保存时间
-    lastBatchSize: 0,       // 上次批量大小
+    totalProcessed: 0, // 总处理数量
+    totalSaved: 0, // 成功保存数量
+    totalFailed: 0, // 失败数量
+    lastBatchTime: new Date(), // 上次批量保存时间
+    lastBatchSize: 0, // 上次批量大小
   };
 
   /**
@@ -53,7 +53,8 @@ export class IpService implements OnModuleDestroy {
       batchInterval: this.BATCH_SAVE_INTERVAL,
       statistics: {
         ...this.stats,
-        queueUsagePercent: ((this.ipQueue.length / this.MAX_QUEUE_SIZE) * 100).toFixed(2) + '%',
+        queueUsagePercent:
+          ((this.ipQueue.length / this.MAX_QUEUE_SIZE) * 100).toFixed(2) + '%',
       },
     };
   }
@@ -63,14 +64,21 @@ export class IpService implements OnModuleDestroy {
    */
   saveIpInfoAsync(
     clientIp: string,
+    ipType: 'IPv4' | 'IPv6',
     requestPath: string,
     requestMethod: string,
-    userAgent?: string,
+    userAgent: string,
   ) {
     // 使用 setImmediate 异步执行，不阻塞当前请求
     setImmediate(async () => {
       try {
-        await this.saveIpInfo(clientIp, requestPath, requestMethod, userAgent);
+        await this.saveIpInfo(
+          clientIp,
+          ipType,
+          requestPath,
+          requestMethod,
+          userAgent,
+        );
       } catch (error) {
         this.logger.error('异步保存IP记录失败', error);
       }
@@ -81,25 +89,24 @@ export class IpService implements OnModuleDestroy {
    * 将IP信息添加到内存队列（推荐的高性能方案）
    */
   addToQueue(
-    clientIp: string,
+    ip: string,
+    ipType: 'IPv4' | 'IPv6',
     requestPath: string,
     requestMethod: string,
     userAgent?: string,
   ) {
-    const { ip, ipType } = extractRealIp(clientIp);
-    
     const ipRecord = {
       clientIp: ip,
+      ipType,
       requestPath,
       requestMethod,
       userAgent,
-      ipType,
       timestamp: new Date(),
     };
 
     this.ipQueue.push(ipRecord);
     this.stats.totalProcessed++;
-    
+
     // 如果队列超过限制，立即触发批量保存
     if (this.ipQueue.length >= this.MAX_QUEUE_SIZE) {
       this.logger.warn(`队列已满(${this.MAX_QUEUE_SIZE})，触发立即保存`);
@@ -119,24 +126,30 @@ export class IpService implements OnModuleDestroy {
     try {
       // 批量插入数据库
       await this.ipRepository.insert(batchToSave);
-      
+
       // 更新统计信息
       this.stats.totalSaved += batchToSave.length;
       this.stats.lastBatchTime = new Date();
       this.stats.lastBatchSize = batchToSave.length;
-      
+
       this.logger.log(`✅ 批量保存 ${batchToSave.length} 条IP记录成功`);
     } catch (error) {
       // 更新失败统计
       this.stats.totalFailed += batchToSave.length;
-      
-      this.logger.error(`❌ 批量保存IP记录失败，丢失 ${batchToSave.length} 条记录`, error);
-      
+
+      this.logger.error(
+        `❌ 批量保存IP记录失败，丢失 ${batchToSave.length} 条记录`,
+        error,
+      );
+
       // 如果是数据库连接问题，可以考虑将记录重新加入队列
       if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
         this.logger.warn('检测到数据库连接问题，尝试将记录重新加入队列');
         // 只重新加入一部分，避免无限循环
-        const reinsertCount = Math.min(batchToSave.length, this.MAX_QUEUE_SIZE - this.ipQueue.length);
+        const reinsertCount = Math.min(
+          batchToSave.length,
+          this.MAX_QUEUE_SIZE - this.ipQueue.length,
+        );
         this.ipQueue.unshift(...batchToSave.slice(0, reinsertCount));
       }
     }
@@ -149,8 +162,10 @@ export class IpService implements OnModuleDestroy {
     this.batchSaveTimer = setInterval(() => {
       this.saveBatch();
     }, this.BATCH_SAVE_INTERVAL);
-    
-    this.logger.log(`IP记录批量保存任务已启动，间隔：${this.BATCH_SAVE_INTERVAL}ms`);
+
+    this.logger.log(
+      `IP记录批量保存任务已启动，间隔：${this.BATCH_SAVE_INTERVAL}ms`,
+    );
   }
 
   /**
@@ -158,23 +173,27 @@ export class IpService implements OnModuleDestroy {
    */
   async onModuleDestroy() {
     this.logger.log('🔄 IpService 正在执行清理工作...');
-    
+
     // 1. 清理定时器
     if (this.batchSaveTimer) {
       clearInterval(this.batchSaveTimer);
       this.batchSaveTimer = null;
       this.logger.log('✅ 定时批量保存任务已停止');
     }
-    
+
     // 2. 保存队列中剩余的数据
     if (this.ipQueue.length > 0) {
-      this.logger.log(`📤 正在保存队列中剩余的 ${this.ipQueue.length} 条IP记录...`);
+      this.logger.log(
+        `📤 正在保存队列中剩余的 ${this.ipQueue.length} 条IP记录...`,
+      );
       await this.saveBatch();
       this.logger.log('✅ 队列中的数据已保存完成');
     }
-    
+
     // 3. 输出最终统计信息
-    this.logger.log(`📊 IpService 最终统计: 处理${this.stats.totalProcessed}条, 成功保存${this.stats.totalSaved}条, 失败${this.stats.totalFailed}条`);
+    this.logger.log(
+      `📊 IpService 最终统计: 处理${this.stats.totalProcessed}条, 成功保存${this.stats.totalSaved}条, 失败${this.stats.totalFailed}条`,
+    );
     this.logger.log('✅ IpService 清理工作完成');
   }
 
@@ -183,24 +202,23 @@ export class IpService implements OnModuleDestroy {
    */
   async saveIpInfo(
     clientIp: string,
+    ipType: 'IPv4' | 'IPv6',
     requestPath: string,
     requestMethod: string,
-    userAgent?: string,
+    userAgent: string,
   ) {
     try {
-      const { ip, ipType } = extractRealIp(clientIp);
-
       // 只传递Ip实体中已定义的属性
       const ipLog = this.ipRepository.create({
-        clientIp: ip,
-        requestPath: requestPath,
-        requestMethod: requestMethod,
+        clientIp,
+        requestPath,
+        requestMethod,
         userAgent,
-        ipType,
+        ipType: ipType || 'IPv4',
       } as Partial<Ip>);
 
       const result = await this.ipRepository.save(ipLog);
-      this.logger.log(`记录IP访问: ${ip} (${ipType}) - ${requestPath}`);
+      this.logger.log(`记录IP访问: ${clientIp} (${ipType}) - ${requestPath}`);
       return result;
     } catch (error) {
       this.logger.error('记录IP访问失败', error);
@@ -232,21 +250,21 @@ export class IpService implements OnModuleDestroy {
   }
 
   // ==================== Redis 缓存方案（可选的高级方案）====================
-  
+
   /**
    * Redis缓存方案示例（需要安装 redis 依赖）
-   * 
+   *
    * 使用方法：
    * 1. 安装依赖：pnpm install redis
    * 2. 在模块中注入Redis客户端
    * 3. 使用 saveToRedis 方法替代 addToQueue
-   * 
+   *
    * 优势：
    * - 数据持久化到Redis，即使服务重启也不会丢失
    * - 可以多实例共享队列
    * - Redis的性能比内存队列更稳定
    */
-  
+
   /*
   // Redis客户端示例配置（需要在模块中配置）
   private redisClient: any; // 实际项目中应该使用正确的Redis类型

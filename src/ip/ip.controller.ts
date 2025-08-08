@@ -1,6 +1,7 @@
 import { Controller, Get, Query, Request } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { IpService } from './ip.service';
+import { extractRealIp } from '../common/utils/ip.utils';
 
 @Controller('ip')
 @ApiTags('IP日志')
@@ -32,9 +33,13 @@ export class IpController {
     const requestMethod = req.method;
     const userAgent = req.headers['user-agent'];
 
+    // 使用 extractRealIp 提取 ip 和 ipType
+    const { ip, ipType } = extractRealIp(realIp);
+
     // 使用队列方式记录（推荐：高性能，批量保存）
     this.ipService.addToQueue(
-      realIp,
+      ip,
+      ipType,
       requestPath,
       requestMethod,
       userAgent,
@@ -45,7 +50,8 @@ export class IpController {
       success: true,
       message: '成功获取客户端IP',
       data: {
-        clientIp: realIp,
+        clientIp: ip,
+        ipType: ipType || 'IPv4',
         requestPath,
         requestMethod,
         userAgent,
@@ -74,6 +80,8 @@ export class IpController {
     const realIp =
       typeof clientIp === 'string' ? clientIp.split(',')[0].trim() : clientIp;
 
+    const { ip, ipType } = extractRealIp(realIp);
+
     // 获取请求信息
     const requestPath = req.url;
     const requestMethod = req.method;
@@ -81,7 +89,8 @@ export class IpController {
 
     // 异步记录到数据库（不等待完成，直接返回结果）
     this.ipService.saveIpInfoAsync(
-      realIp,
+      ip,
+      ipType,
       requestPath,
       requestMethod,
       userAgent,
@@ -92,7 +101,8 @@ export class IpController {
       success: true,
       message: '成功获取客户端IP（异步保存）',
       data: {
-        clientIp: realIp,
+        clientIp: ip,
+        ipType: ipType || 'IPv4',
         requestPath,
         requestMethod,
         userAgent,
