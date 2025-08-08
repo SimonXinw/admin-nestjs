@@ -29,10 +29,13 @@ export class IpService implements OnModuleDestroy {
     timestamp: Date;
   }> = [];
 
-  // 队列大小限制
-  private readonly MAX_QUEUE_SIZE = 1000;
-  // 批量保存间隔（毫秒）
-  private readonly BATCH_SAVE_INTERVAL = 2000; // 2秒
+  // 🚀 优化队列配置，提升高并发性能
+  private readonly MAX_QUEUE_SIZE = 2000; // 增加队列大小，从1000到2000
+  private readonly BATCH_SAVE_INTERVAL = 1000; // 减少批量保存间隔，从2秒到1秒
+  private readonly MIN_BATCH_SIZE = 50; // 最小批量大小，避免频繁小批量保存
+
+  // 🔒 添加队列操作锁，防止并发问题
+  private isProcessing = false;
 
   // 统计信息
   private stats = {
@@ -41,6 +44,7 @@ export class IpService implements OnModuleDestroy {
     totalFailed: 0, // 失败数量
     lastBatchTime: new Date(), // 上次批量保存时间
     lastBatchSize: 0, // 上次批量大小
+    averageLatency: 0, // 平均延迟
   };
 
   /**
@@ -51,10 +55,13 @@ export class IpService implements OnModuleDestroy {
       queueLength: this.ipQueue.length,
       maxQueueSize: this.MAX_QUEUE_SIZE,
       batchInterval: this.BATCH_SAVE_INTERVAL,
+      minBatchSize: this.MIN_BATCH_SIZE,
+      isProcessing: this.isProcessing,
       statistics: {
         ...this.stats,
         queueUsagePercent:
           ((this.ipQueue.length / this.MAX_QUEUE_SIZE) * 100).toFixed(2) + '%',
+        memoryUsage: process.memoryUsage(),
       },
     };
   }
@@ -86,7 +93,7 @@ export class IpService implements OnModuleDestroy {
   }
 
   /**
-   * 将IP信息添加到内存队列（推荐的高性能方案）
+   * 🚀 优化：将IP信息添加到内存队列（推荐的高性能方案）
    */
   addToQueue(
     ip: string,
@@ -107,32 +114,47 @@ export class IpService implements OnModuleDestroy {
     this.ipQueue.push(ipRecord);
     this.stats.totalProcessed++;
 
-    // 如果队列超过限制，立即触发批量保存
-    if (this.ipQueue.length >= this.MAX_QUEUE_SIZE) {
-      this.logger.warn(`队列已满(${this.MAX_QUEUE_SIZE})，触发立即保存`);
+    // 🚀 优化触发条件：队列满或达到最小批量大小且超过一定时间
+    const shouldTriggerSave = 
+      this.ipQueue.length >= this.MAX_QUEUE_SIZE || 
+      (this.ipQueue.length >= this.MIN_BATCH_SIZE && 
+       Date.now() - this.stats.lastBatchTime.getTime() > this.BATCH_SAVE_INTERVAL);
+
+    if (shouldTriggerSave && !this.isProcessing) {
+      this.logger.debug(`触发批量保存: 队列长度=${this.ipQueue.length}`);
       this.saveBatch();
     }
   }
 
   /**
-   * 批量保存队列中的IP记录
+   * 🚀 优化：批量保存队列中的IP记录
    */
   private async saveBatch() {
-    if (this.ipQueue.length === 0) return;
+    if (this.ipQueue.length === 0 || this.isProcessing) return;
 
+    this.isProcessing = true;
+    const startTime = Date.now();
     const batchToSave = [...this.ipQueue];
     this.ipQueue = []; // 清空队列
 
     try {
-      // 批量插入数据库
-      await this.ipRepository.insert(batchToSave);
+      // 🚀 使用 insertOrIgnore 提升性能，避免重复插入错误
+      await this.ipRepository
+        .createQueryBuilder()
+        .insert()
+        .into(Ip)
+        .values(batchToSave)
+        .orIgnore() // MySQL: INSERT IGNORE，提升性能
+        .execute();
 
       // 更新统计信息
+      const latency = Date.now() - startTime;
       this.stats.totalSaved += batchToSave.length;
       this.stats.lastBatchTime = new Date();
       this.stats.lastBatchSize = batchToSave.length;
+      this.stats.averageLatency = (this.stats.averageLatency + latency) / 2;
 
-      this.logger.log(`✅ 批量保存 ${batchToSave.length} 条IP记录成功`);
+      this.logger.log(`✅ 批量保存 ${batchToSave.length} 条IP记录成功，耗时: ${latency}ms`);
     } catch (error) {
       // 更新失败统计
       this.stats.totalFailed += batchToSave.length;
@@ -142,17 +164,31 @@ export class IpService implements OnModuleDestroy {
         error,
       );
 
-      // 如果是数据库连接问题，可以考虑将记录重新加入队列
-      if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
-        this.logger.warn('检测到数据库连接问题，尝试将记录重新加入队列');
-        // 只重新加入一部分，避免无限循环
+      // 🚀 优化错误处理：根据错误类型决定是否重新入队
+      if (this.shouldRetryBatch(error)) {
         const reinsertCount = Math.min(
           batchToSave.length,
           this.MAX_QUEUE_SIZE - this.ipQueue.length,
         );
-        this.ipQueue.unshift(...batchToSave.slice(0, reinsertCount));
+        if (reinsertCount > 0) {
+          this.ipQueue.unshift(...batchToSave.slice(0, reinsertCount));
+          this.logger.warn(`重新入队 ${reinsertCount} 条记录`);
+        }
       }
+    } finally {
+      this.isProcessing = false;
     }
+  }
+
+  /**
+   * 🚀 新增：判断是否应该重试批量保存
+   */
+  private shouldRetryBatch(error: any): boolean {
+    // 只对网络和连接问题重试，避免数据格式错误无限重试
+    const retryableErrors = ['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'EPIPE'];
+    return retryableErrors.some(errorCode => 
+      error.code === errorCode || error.message?.includes(errorCode)
+    );
   }
 
   /**
@@ -160,11 +196,14 @@ export class IpService implements OnModuleDestroy {
    */
   private startBatchSaveTask() {
     this.batchSaveTimer = setInterval(() => {
-      this.saveBatch();
+      // 只有当队列有数据且不在处理中时才执行
+      if (this.ipQueue.length > 0 && !this.isProcessing) {
+        this.saveBatch();
+      }
     }, this.BATCH_SAVE_INTERVAL);
 
     this.logger.log(
-      `IP记录批量保存任务已启动，间隔：${this.BATCH_SAVE_INTERVAL}ms`,
+      `🚀 IP记录批量保存任务已启动，间隔：${this.BATCH_SAVE_INTERVAL}ms，最小批量：${this.MIN_BATCH_SIZE}`,
     );
   }
 

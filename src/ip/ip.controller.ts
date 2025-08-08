@@ -163,4 +163,91 @@ export class IpController {
       data: status,
     };
   }
+
+  /**
+   * 🚀 新增：性能监控仪表板（用于检查优化效果）
+   */
+  @Get('performance-dashboard')
+  @ApiOperation({ summary: '获取性能监控仪表板数据' })
+  @ApiResponse({ status: 200, description: '成功获取性能监控数据' })
+  async getPerformanceDashboard() {
+    const queueStatus = this.ipService.getQueueStatus();
+    const memoryUsage = process.memoryUsage();
+    
+    // 计算性能指标
+    const performanceMetrics = {
+      // 队列健康度
+      queueHealth: {
+        status: queueStatus.queueLength < queueStatus.maxQueueSize * 0.8 ? '健康' : '警告',
+        currentLoad: queueStatus.queueLength,
+        maxCapacity: queueStatus.maxQueueSize,
+        usagePercentage: ((queueStatus.queueLength / queueStatus.maxQueueSize) * 100).toFixed(2) + '%',
+        isProcessing: queueStatus.isProcessing,
+      },
+      
+      // 批量处理效率
+      batchEfficiency: {
+        batchInterval: queueStatus.batchInterval + 'ms',
+        minBatchSize: queueStatus.minBatchSize,
+        lastBatchSize: queueStatus.statistics.lastBatchSize,
+        averageLatency: queueStatus.statistics.averageLatency + 'ms',
+        totalProcessed: queueStatus.statistics.totalProcessed,
+        totalSaved: queueStatus.statistics.totalSaved,
+        totalFailed: queueStatus.statistics.totalFailed,
+        successRate: queueStatus.statistics.totalProcessed > 0 
+          ? ((queueStatus.statistics.totalSaved / queueStatus.statistics.totalProcessed) * 100).toFixed(2) + '%'
+          : '100%',
+      },
+      
+      // 内存使用情况
+      memoryUsage: {
+        rss: Math.round(memoryUsage.rss / 1024 / 1024) + 'MB',
+        heapUsed: Math.round(memoryUsage.heapUsed / 1024 / 1024) + 'MB',
+        heapTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024) + 'MB',
+        external: Math.round(memoryUsage.external / 1024 / 1024) + 'MB',
+      },
+      
+      // 性能建议
+      recommendations: this.generatePerformanceRecommendations(queueStatus),
+    };
+
+    return {
+      success: true,
+      message: '成功获取性能监控数据',
+      data: performanceMetrics,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * 🚀 新增：生成性能优化建议
+   */
+  private generatePerformanceRecommendations(queueStatus: any): string[] {
+    const recommendations: string[] = [];
+    
+    // 队列使用率检查
+    const queueUsage = queueStatus.queueLength / queueStatus.maxQueueSize;
+    if (queueUsage > 0.8) {
+      recommendations.push('队列使用率较高，建议增加MAX_QUEUE_SIZE或减少BATCH_SAVE_INTERVAL');
+    }
+    
+    // 平均延迟检查
+    if (queueStatus.statistics.averageLatency > 1000) {
+      recommendations.push('批量保存平均延迟较高，建议检查数据库连接池配置');
+    }
+    
+    // 失败率检查
+    const failureRate = queueStatus.statistics.totalFailed / 
+      (queueStatus.statistics.totalProcessed || 1);
+    if (failureRate > 0.05) {
+      recommendations.push('批量保存失败率较高，建议检查数据库连接和网络状况');
+    }
+    
+    // 性能良好时的建议
+    if (recommendations.length === 0) {
+      recommendations.push('性能状况良好，可以考虑进一步增加并发数进行压测');
+    }
+    
+    return recommendations;
+  }
 }
