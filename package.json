@@ -21,7 +21,8 @@
     "typeorm": "typeorm-ts-node-esm -d ./src/config/db.config.ts",
     "migration:generate": "pnpm typeorm -- migration:generate",
     "migration:run": "pnpm typeorm -- migration:run",
-    "migration:revert": "pnpm typeorm -- migration:revert"
+    "migration:revert": "pnpm typeorm -- migration:revert",
+    "pm2:start": "git pull && pnpm install && pnpm build && pm2 restart ecosystem.config.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.5",

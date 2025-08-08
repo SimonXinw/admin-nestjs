@@ -92,7 +92,7 @@ module.exports = {
       path: '/var/www/admin-nestjs',
       'pre-deploy-local': '',
       'post-deploy':
-        'npm install && npm run build && pm2 reload ecosystem.config.js --env production',
+        'git pull && pnpm install && pnpm build && pm2 reload ecosystem.config.js --env production',
       'pre-setup': '',
     },
   },
