@@ -1,11 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Ip } from './entities/admin/ip.entity';
 import { extractRealIp } from '../common/utils/ip.utils';
 
 @Injectable()
-export class IpService {
+export class IpService implements OnModuleDestroy {
   constructor(
     @InjectRepository(Ip, 'admin')
     private readonly ipRepository: Repository<Ip>,
@@ -15,6 +15,9 @@ export class IpService {
   }
 
   private readonly logger = new Logger(IpService.name);
+  
+  // 定时器ID，用于清理定时任务
+  private batchSaveTimer: NodeJS.Timeout | null = null;
   
   // 内存队列，用于缓存待保存的IP记录
   private ipQueue: Array<{
@@ -29,7 +32,7 @@ export class IpService {
   // 队列大小限制
   private readonly MAX_QUEUE_SIZE = 1000;
   // 批量保存间隔（毫秒）
-  private readonly BATCH_SAVE_INTERVAL = 5000; // 5秒
+  private readonly BATCH_SAVE_INTERVAL = 2000; // 2秒
   
   // 统计信息
   private stats = {
@@ -143,11 +146,36 @@ export class IpService {
    * 启动定时批量保存任务
    */
   private startBatchSaveTask() {
-    setInterval(() => {
+    this.batchSaveTimer = setInterval(() => {
       this.saveBatch();
     }, this.BATCH_SAVE_INTERVAL);
     
     this.logger.log(`IP记录批量保存任务已启动，间隔：${this.BATCH_SAVE_INTERVAL}ms`);
+  }
+
+  /**
+   * 模块销毁时的清理工作
+   */
+  async onModuleDestroy() {
+    this.logger.log('🔄 IpService 正在执行清理工作...');
+    
+    // 1. 清理定时器
+    if (this.batchSaveTimer) {
+      clearInterval(this.batchSaveTimer);
+      this.batchSaveTimer = null;
+      this.logger.log('✅ 定时批量保存任务已停止');
+    }
+    
+    // 2. 保存队列中剩余的数据
+    if (this.ipQueue.length > 0) {
+      this.logger.log(`📤 正在保存队列中剩余的 ${this.ipQueue.length} 条IP记录...`);
+      await this.saveBatch();
+      this.logger.log('✅ 队列中的数据已保存完成');
+    }
+    
+    // 3. 输出最终统计信息
+    this.logger.log(`📊 IpService 最终统计: 处理${this.stats.totalProcessed}条, 成功保存${this.stats.totalSaved}条, 失败${this.stats.totalFailed}条`);
+    this.logger.log('✅ IpService 清理工作完成');
   }
 
   /**
