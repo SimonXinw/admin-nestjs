@@ -6,7 +6,8 @@ const baseConnectionConfig = {
   host: 'localhost',
   port: 3306,
   username: 'root',
-  password: 'AWOLVision2501..',
+  // password: 'AWOLVision2501..',
+  password: '123456',
 };
 
 // school 数据库配置（原有的）
@@ -37,8 +38,8 @@ export const connectionConfig = baseConnectionConfig;
 // 实用函数：获取所有数据库名称
 export function getAllDatabaseNames(): string[] {
   return databaseConfigs
-    .map(dbConfig => dbConfig.config.database)
-    .filter(dbName => dbName && typeof dbName === 'string') as string[];
+    .map((dbConfig) => dbConfig.config.database)
+    .filter((dbName) => dbName && typeof dbName === 'string') as string[];
 }
 
 // school 数据库 - 用于 nestjs typeorm 初始化
