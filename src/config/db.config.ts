@@ -6,7 +6,7 @@ const baseConnectionConfig = {
   host: 'localhost',
   port: 3306,
   username: 'root',
-  password: '123456',
+  password: 'AWOLVision2501..',
 };
 
 // school 数据库配置（原有的）
