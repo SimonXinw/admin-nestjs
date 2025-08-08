@@ -10,28 +10,32 @@ module.exports = {
       // 工作目录
       cwd: './',
 
-      // 单实例模式
+      // 🔄 保持单实例模式（状态管理需要）
       instances: 1,
 
-      // fork模式 - 适合有状态应用和数据库事务
+      // 🔄 fork模式 - 适合有状态应用
       exec_mode: 'fork',
 
       // 环境变量
       env: {
         NODE_ENV: 'production',
         PORT: 4000,
+        // 🚀 Node.js性能优化环境变量
+        UV_THREADPOOL_SIZE: 128, // 增加线程池大小，默认4
       },
 
       // 开发环境变量
       env_development: {
         NODE_ENV: 'development',
         PORT: 4000,
+        UV_THREADPOOL_SIZE: 64,
       },
 
       // 生产环境变量
       env_production: {
         NODE_ENV: 'production',
         PORT: 4000,
+        UV_THREADPOOL_SIZE: 128,
       },
 
       // 自动重启配置
@@ -40,8 +44,8 @@ module.exports = {
       // 监听文件变化 (生产环境建议设为 false)
       watch: false,
 
-      // 内存限制 - 单实例可以设置更高
-      max_memory_restart: '4G',
+      // 🚀 调整内存限制 - 单实例可以设置更高
+      max_memory_restart: '4G', // 增加到6G，给队列更多内存
 
       // 重启配置
       restart_delay: 4000,
@@ -65,9 +69,6 @@ module.exports = {
       // 进程 ID 文件
       pid_file: './pids/admin-nestjs.pid',
 
-      // Node.js 参数
-      node_args: '--max-old-space-size=1024',
-
       // 忽略的监听文件
       ignore_watch: ['node_modules', 'logs', 'pids', 'dist', '*.log'],
 
@@ -79,6 +80,10 @@ module.exports = {
 
       // 进程标题
       treekill: true,
+
+      // 🚀 新增：单实例性能优化配置
+      listen_timeout: 8000,
+      kill_retry_time: 100,
     },
   ],
 

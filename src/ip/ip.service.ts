@@ -29,10 +29,12 @@ export class IpService implements OnModuleDestroy {
     timestamp: Date;
   }> = [];
 
-  // 🚀 优化队列配置，提升高并发性能
-  private readonly MAX_QUEUE_SIZE = 2000; // 增加队列大小，从1000到2000
-  private readonly BATCH_SAVE_INTERVAL = 1000; // 减少批量保存间隔，从2秒到1秒
-  private readonly MIN_BATCH_SIZE = 50; // 最小批量大小，避免频繁小批量保存
+  // 🚀 更激进的队列配置，最大化单实例性能
+  // BATCH_SAVE_INTERVAL（批量保存间隔）设置为500毫秒，数值越小，批量保存越频繁，延迟更低，但数据库压力更大；数值越大，批量保存频率降低，延迟增加，但单次批量量可能更大，数据库压力更平滑。实际性能优劣取决于业务场景和数据库承载能力，一般建议在500-1000ms之间权衡。
+  private readonly MAX_QUEUE_SIZE = 5000; // 进一步增加队列大小，从2000到5000
+  private readonly BATCH_SAVE_INTERVAL = 5000; // 批量保存间隔（毫秒），500较小，适合高并发低延迟场景
+  private readonly MIN_BATCH_SIZE = 100; // 增加最小批量大小，从50到100
+  private readonly FORCE_SAVE_THRESHOLD = 4000; // 强制保存阈值，避免队列过满
 
   // 🔒 添加队列操作锁，防止并发问题
   private isProcessing = false;
@@ -114,14 +116,17 @@ export class IpService implements OnModuleDestroy {
     this.ipQueue.push(ipRecord);
     this.stats.totalProcessed++;
 
-    // 🚀 优化触发条件：队列满或达到最小批量大小且超过一定时间
+    // 🚀 更激进的触发条件：强制保存阈值 + 原有逻辑
+    const shouldForceSave = this.ipQueue.length >= this.FORCE_SAVE_THRESHOLD;
     const shouldTriggerSave = 
+      shouldForceSave ||
       this.ipQueue.length >= this.MAX_QUEUE_SIZE || 
       (this.ipQueue.length >= this.MIN_BATCH_SIZE && 
        Date.now() - this.stats.lastBatchTime.getTime() > this.BATCH_SAVE_INTERVAL);
 
     if (shouldTriggerSave && !this.isProcessing) {
-      this.logger.debug(`触发批量保存: 队列长度=${this.ipQueue.length}`);
+      const triggerReason = shouldForceSave ? '强制保存' : '常规触发';
+      this.logger.debug(`${triggerReason}批量保存: 队列长度=${this.ipQueue.length}`);
       this.saveBatch();
     }
   }
