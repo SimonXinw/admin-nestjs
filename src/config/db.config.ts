@@ -39,14 +39,14 @@ const baseConnectionConfig = {
 const schoolConfig: DataSourceOptions = {
   ...baseConnectionConfig,
   database: 'school',
-  synchronize: true, // 🚀 生产环境关闭自动同步，提升性能
+  synchronize: false, // 🚀 生产环境关闭自动同步，提升性能
 };
 
 // admin 数据库配置（新增的）
 const adminConfig: DataSourceOptions = {
   ...baseConnectionConfig,
   database: 'admin',
-  synchronize: true, // 🚀 生产环境关闭自动同步，提升性能
+  synchronize: false, // 🚀 生产环境关闭自动同步，提升性能
 };
 
 // 导出数据库配置数组，用于动态初始化

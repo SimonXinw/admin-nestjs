@@ -6,7 +6,7 @@ export function buildRedisOptions(): RedisModuleOptions {
     options: {
       host: process.env.REDIS_HOST ?? '127.0.0.1',
       port: Number(process.env.REDIS_PORT ?? 6379),
-      password: process.env.REDIS_PASSWORD || undefined,
+      password: process.env.REDIS_PASSWORD || 'AWOLVision2501..',
       db: Number(process.env.REDIS_DB ?? 0),
       // 避免连接失败时抛出 MaxRetriesPerRequestError
       maxRetriesPerRequest: null,
