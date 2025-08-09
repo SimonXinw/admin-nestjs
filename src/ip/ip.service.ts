@@ -20,9 +20,17 @@ export class IpService implements OnModuleDestroy {
     this.redisClient.on('error', (err) => {
       this.logger.warn(`Redis 客户端错误: ${err?.message ?? err}`);
     });
+
+    // 设置 Redis key 命名空间，避免与其他业务冲突
+    const redisKeyPrefix = process.env.REDIS_KEY_PREFIX || 'admin_nestjs';
+    this.redisQueueKey = `${redisKeyPrefix}:ip:queue`;
+    this.logger.log(`Redis 队列键: ${this.redisQueueKey}`);
   }
 
   private readonly logger = new Logger(IpService.name);
+
+  // Redis 队列 key（带命名空间前缀，避免与其他业务冲突）
+  private readonly redisQueueKey: string;
 
   // 定时器ID，用于清理定时任务
   private batchSaveTimer: NodeJS.Timeout | null = null;
@@ -343,9 +351,9 @@ export class IpService implements OnModuleDestroy {
         await this.redisClient.connect();
       }
 
-      await this.redisClient.lpush('ip_logs_queue', ipRecord);
+      await this.redisClient.lpush(this.redisQueueKey, ipRecord);
 
-      const queueLength = await this.redisClient.llen('ip_logs_queue');
+      const queueLength = await this.redisClient.llen(this.redisQueueKey);
       if (queueLength >= this.MAX_QUEUE_SIZE) {
         void this.saveFromRedis();
       }
@@ -362,11 +370,11 @@ export class IpService implements OnModuleDestroy {
         await this.redisClient.connect();
       }
 
-      const records = await this.redisClient.lrange('ip_logs_queue', 0, -1);
+      const records = await this.redisClient.lrange(this.redisQueueKey, 0, -1);
       if (records.length === 0) return;
 
       // 清空Redis队列（先删，再尝试落库）
-      await this.redisClient.del('ip_logs_queue');
+      await this.redisClient.del(this.redisQueueKey);
 
       const ipRecords = records.map((record) => JSON.parse(record));
 
@@ -392,7 +400,7 @@ export class IpService implements OnModuleDestroy {
       } catch (error) {
         this.logger.error('从Redis批量保存失败', error);
         for (const record of records) {
-          await this.redisClient.lpush('ip_logs_queue', record);
+          await this.redisClient.lpush(this.redisQueueKey, record);
         }
       }
     } catch (error) {
