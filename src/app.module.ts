@@ -14,9 +14,11 @@ import { Classes } from './students/entities/classes.entity';
 import { Sensitive } from './sensitive/entities/sensitive.entity';
 // import env from 'config';
 import { ormConfigSchool, ormConfigAdmin } from './config/db.config';
+import { RedisGlobalModule } from './config/redis.module';
 
 @Module({
   imports: [
+    RedisGlobalModule,
     StudentsModule, 
     // 配置 school 数据库连接（默认连接）
     TypeOrmModule.forRoot({
