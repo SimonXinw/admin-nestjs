@@ -6,7 +6,7 @@ import { extractRealIp } from '../common/utils/ip.utils';
 @Controller('ip')
 @ApiTags('IP日志')
 export class IpController {
-  constructor(private readonly ipService: IpService) {}
+  constructor(private readonly ipService: IpService) { }
 
   /**
    * 获取客户端IP地址并记录访问日志（高性能版本 - 推荐）
@@ -52,6 +52,49 @@ export class IpController {
       data: {
         clientIp: ip,
         ipType: ipType || 'IPv4',
+        requestPath,
+        requestMethod,
+        userAgent,
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
+  /**
+   * 新增：通过 Redis 入队，再由后台任务定时落库
+   */
+  @Get('ip-redis')
+  @ApiOperation({ summary: '使用Redis缓存队列记录IP并定时落库' })
+  @ApiResponse({ status: 200, description: '成功入队到Redis' })
+  async addIpViaRedis(@Request() req: any) {
+    const clientIp =
+      req.headers['x-forwarded-for'] ||
+      req.headers['x-real-ip'] ||
+      req.connection?.remoteAddress ||
+      req.socket?.remoteAddress ||
+      req.ip ||
+      '未知IP';
+
+    const realIp =
+      typeof clientIp === 'string' ? clientIp.split(',')[0].trim() : clientIp;
+
+    const requestPath = req.url;
+
+    const requestMethod = req.method;
+    const userAgent = req.headers['user-agent'];
+
+    await this.ipService.saveToRedis(
+      realIp,
+      requestPath,
+      requestMethod,
+      userAgent,
+    );
+
+    return {
+      success: true,
+      message: '已写入Redis队列，稍后批量落库',
+      data: {
+        clientIp: realIp,
         requestPath,
         requestMethod,
         userAgent,
@@ -173,7 +216,7 @@ export class IpController {
   async getPerformanceDashboard() {
     const queueStatus = this.ipService.getQueueStatus();
     const memoryUsage = process.memoryUsage();
-    
+
     // 计算性能指标
     const performanceMetrics = {
       // 队列健康度
@@ -184,7 +227,7 @@ export class IpController {
         usagePercentage: ((queueStatus.queueLength / queueStatus.maxQueueSize) * 100).toFixed(2) + '%',
         isProcessing: queueStatus.isProcessing,
       },
-      
+
       // 批量处理效率
       batchEfficiency: {
         batchInterval: queueStatus.batchInterval + 'ms',
@@ -194,11 +237,11 @@ export class IpController {
         totalProcessed: queueStatus.statistics.totalProcessed,
         totalSaved: queueStatus.statistics.totalSaved,
         totalFailed: queueStatus.statistics.totalFailed,
-        successRate: queueStatus.statistics.totalProcessed > 0 
+        successRate: queueStatus.statistics.totalProcessed > 0
           ? ((queueStatus.statistics.totalSaved / queueStatus.statistics.totalProcessed) * 100).toFixed(2) + '%'
           : '100%',
       },
-      
+
       // 内存使用情况
       memoryUsage: {
         rss: Math.round(memoryUsage.rss / 1024 / 1024) + 'MB',
@@ -206,7 +249,7 @@ export class IpController {
         heapTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024) + 'MB',
         external: Math.round(memoryUsage.external / 1024 / 1024) + 'MB',
       },
-      
+
       // 性能建议
       recommendations: this.generatePerformanceRecommendations(queueStatus),
     };
@@ -224,30 +267,30 @@ export class IpController {
    */
   private generatePerformanceRecommendations(queueStatus: any): string[] {
     const recommendations: string[] = [];
-    
+
     // 队列使用率检查
     const queueUsage = queueStatus.queueLength / queueStatus.maxQueueSize;
     if (queueUsage > 0.8) {
       recommendations.push('队列使用率较高，建议增加MAX_QUEUE_SIZE或减少BATCH_SAVE_INTERVAL');
     }
-    
+
     // 平均延迟检查
     if (queueStatus.statistics.averageLatency > 1000) {
       recommendations.push('批量保存平均延迟较高，建议检查数据库连接池配置');
     }
-    
+
     // 失败率检查
-    const failureRate = queueStatus.statistics.totalFailed / 
+    const failureRate = queueStatus.statistics.totalFailed /
       (queueStatus.statistics.totalProcessed || 1);
     if (failureRate > 0.05) {
       recommendations.push('批量保存失败率较高，建议检查数据库连接和网络状况');
     }
-    
+
     // 性能良好时的建议
     if (recommendations.length === 0) {
       recommendations.push('性能状况良好，可以考虑进一步增加并发数进行压测');
     }
-    
+
     return recommendations;
   }
 }

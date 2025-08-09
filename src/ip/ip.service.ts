@@ -1,4 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { InjectRedis } from '@nestjs-modules/ioredis';
+import type { Redis } from 'ioredis';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Ip } from './entities/admin/ip.entity';
@@ -9,9 +11,15 @@ export class IpService implements OnModuleDestroy {
   constructor(
     @InjectRepository(Ip, 'admin')
     private readonly ipRepository: Repository<Ip>,
+    @InjectRedis() private readonly redisClient: Redis,
   ) {
     // 启动定时批量保存任务
     this.startBatchSaveTask();
+
+    // 监听 Redis 错误，避免未处理的 error 事件导致进程崩溃
+    this.redisClient.on('error', (err) => {
+      this.logger.warn(`Redis 客户端错误: ${err?.message ?? err}`);
+    });
   }
 
   private readonly logger = new Logger(IpService.name);
@@ -23,6 +31,7 @@ export class IpService implements OnModuleDestroy {
   private ipQueue: Array<{
     clientIp: string;
     requestPath: string;
+
     requestMethod: string;
     userAgent?: string;
     ipType: 'IPv4' | 'IPv6';
@@ -118,11 +127,11 @@ export class IpService implements OnModuleDestroy {
 
     // 🚀 更激进的触发条件：强制保存阈值 + 原有逻辑
     const shouldForceSave = this.ipQueue.length >= this.FORCE_SAVE_THRESHOLD;
-    const shouldTriggerSave = 
+    const shouldTriggerSave =
       shouldForceSave ||
-      this.ipQueue.length >= this.MAX_QUEUE_SIZE || 
-      (this.ipQueue.length >= this.MIN_BATCH_SIZE && 
-       Date.now() - this.stats.lastBatchTime.getTime() > this.BATCH_SAVE_INTERVAL);
+      this.ipQueue.length >= this.MAX_QUEUE_SIZE ||
+      (this.ipQueue.length >= this.MIN_BATCH_SIZE &&
+        Date.now() - this.stats.lastBatchTime.getTime() > this.BATCH_SAVE_INTERVAL);
 
     if (shouldTriggerSave && !this.isProcessing) {
       const triggerReason = shouldForceSave ? '强制保存' : '常规触发';
@@ -191,7 +200,7 @@ export class IpService implements OnModuleDestroy {
   private shouldRetryBatch(error: any): boolean {
     // 只对网络和连接问题重试，避免数据格式错误无限重试
     const retryableErrors = ['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'EPIPE'];
-    return retryableErrors.some(errorCode => 
+    return retryableErrors.some(errorCode =>
       error.code === errorCode || error.message?.includes(errorCode)
     );
   }
@@ -205,6 +214,8 @@ export class IpService implements OnModuleDestroy {
       if (this.ipQueue.length > 0 && !this.isProcessing) {
         this.saveBatch();
       }
+      // 同步检查 Redis 队列并尝试批量落库
+      void this.saveFromRedis();
     }, this.BATCH_SAVE_INTERVAL);
 
     this.logger.log(
@@ -309,10 +320,6 @@ export class IpService implements OnModuleDestroy {
    * - Redis的性能比内存队列更稳定
    */
 
-  /*
-  // Redis客户端示例配置（需要在模块中配置）
-  private redisClient: any; // 实际项目中应该使用正确的Redis类型
-  
   async saveToRedis(
     clientIp: string,
     requestPath: string,
@@ -320,7 +327,7 @@ export class IpService implements OnModuleDestroy {
     userAgent?: string,
   ) {
     const { ip, ipType } = extractRealIp(clientIp);
-    
+
     const ipRecord = JSON.stringify({
       clientIp: ip,
       requestPath,
@@ -330,35 +337,67 @@ export class IpService implements OnModuleDestroy {
       timestamp: new Date().toISOString(),
     });
 
-    // 将记录推入Redis列表
-    await this.redisClient.lpush('ip_logs_queue', ipRecord);
-    
-    // 如果队列太长，触发批量保存
-    const queueLength = await this.redisClient.llen('ip_logs_queue');
-    if (queueLength >= this.MAX_QUEUE_SIZE) {
-      this.saveFromRedis();
-    }
-  }
-
-  private async saveFromRedis() {
-    const records = await this.redisClient.lrange('ip_logs_queue', 0, -1);
-    if (records.length === 0) return;
-
-    // 清空Redis队列
-    await this.redisClient.del('ip_logs_queue');
-
-    const ipRecords = records.map(record => JSON.parse(record));
-    
     try {
-      await this.ipRepository.insert(ipRecords);
-      this.logger.log(`从Redis批量保存 ${ipRecords.length} 条记录成功`);
-    } catch (error) {
-      this.logger.error('从Redis批量保存失败', error);
-      // 将失败的记录重新放回Redis
-      for (const record of records) {
-        await this.redisClient.lpush('ip_logs_queue', record);
+      // 若使用 lazyConnect，需要确保连接已建立
+      if ((this.redisClient as any).status === 'wait') {
+        await this.redisClient.connect();
       }
+
+      await this.redisClient.lpush('ip_logs_queue', ipRecord);
+
+      const queueLength = await this.redisClient.llen('ip_logs_queue');
+      if (queueLength >= this.MAX_QUEUE_SIZE) {
+        void this.saveFromRedis();
+      }
+    } catch (error) {
+      // Redis 不可用时回退到内存队列，保证不丢日志
+      this.logger.warn(`Redis 不可用，回退到内存队列: ${String(error)}`);
+      this.addToQueue(ip, ipType, requestPath, requestMethod, userAgent);
     }
   }
-  */
+
+  async saveFromRedis() {
+    try {
+      if ((this.redisClient as any).status === 'wait') {
+        await this.redisClient.connect();
+      }
+
+      const records = await this.redisClient.lrange('ip_logs_queue', 0, -1);
+      if (records.length === 0) return;
+
+      // 清空Redis队列（先删，再尝试落库）
+      await this.redisClient.del('ip_logs_queue');
+
+      const ipRecords = records.map((record) => JSON.parse(record));
+
+      try {
+        await this.ipRepository
+          .createQueryBuilder()
+          .insert()
+          .into(Ip)
+          .values(
+            ipRecords.map((r) => ({
+              clientIp: r.clientIp,
+              requestPath: r.requestPath,
+              requestMethod: r.requestMethod,
+              userAgent: r.userAgent,
+              ipType: r.ipType,
+              createTime: new Date(r.timestamp),
+            })),
+          )
+          .orIgnore()
+          .execute();
+
+        this.logger.log(`从Redis批量保存 ${ipRecords.length} 条记录成功`);
+      } catch (error) {
+        this.logger.error('从Redis批量保存失败', error);
+        for (const record of records) {
+          await this.redisClient.lpush('ip_logs_queue', record);
+        }
+      }
+    } catch (error) {
+      // Redis 不可用，忽略，等待下次周期
+      this.logger.warn(`Redis 不可用，跳过本轮落库: ${String(error)}`);
+    }
+  }
 }
